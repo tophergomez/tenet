@@ -2,12 +2,12 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "tenet",
   "outputfilename": "tenet",
-  "frontend:install": "npm install",
-  "frontend:build": "npm run build",
-  "frontend:dev:watcher": "npm run dev",
+  "frontend:install": "pnpm install",
+  "frontend:build": "pnpm run build",
+  "frontend:dev:watcher": "pnpm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "ChrisShore360",
-    "email": "christopher.g@shore360agency.com"
+    "name": "tophergomez",
+    "email": "gomez.cneil@gmail.com"
   }
 }

@@ -2,3 +2,42 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/* ─── Base ───────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+  font-family: "Geist Variable", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #09090b;
+  color: #e4e4e7;
+}
+
+/* Remove xterm default overflow so our container controls it */
+.xterm {
+  height: 100%;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+
+/* Hide scrollbars on tab bar */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  scrollbar-width: none;
+}
+

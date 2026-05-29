@@ -1,8 +1,2 @@
+// Package auth provides Google OAuth2 login and JWT session management.
 package auth
-
-type controller struct {
-}
-
-func Sample(text string) string {
-	return text
-}

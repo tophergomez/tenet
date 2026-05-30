@@ -25,7 +25,7 @@ func NewManager(ctx context.Context) *Manager {
 
 // Create starts a new shell process and returns its ID.
 func (m *Manager) Create(shell, workingDir string) (string, error) {
-	p, err := NewProcess(shell, workingDir, m.emitOutput, m.emitExit)
+	p, err := NewProcess(shell, workingDir, m.emitOutput, m.emitCWD, m.emitExit)
 	if err != nil {
 		return "", fmt.Errorf("create terminal: %w", err)
 	}
@@ -90,8 +90,20 @@ func (m *Manager) get(termID string) *Process {
 	return m.processes[termID]
 }
 
+// Shell returns the shell type of a running terminal (empty string if not found).
+func (m *Manager) Shell(termID string) ShellType {
+	if p := m.get(termID); p != nil {
+		return p.Shell
+	}
+	return ""
+}
+
 func (m *Manager) emitOutput(termID, data string) {
 	runtime.EventsEmit(m.ctx, "terminal:output:"+termID, data)
+}
+
+func (m *Manager) emitCWD(termID, dir string) {
+	runtime.EventsEmit(m.ctx, "terminal:cwd:"+termID, dir)
 }
 
 func (m *Manager) emitExit(termID string, exitCode int) {

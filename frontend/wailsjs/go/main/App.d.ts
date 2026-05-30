@@ -25,11 +25,17 @@ export function SessionList():Promise<Array<main.SessionDTO>>;
 
 export function SessionRename(arg1:string,arg2:string):Promise<void>;
 
+export function SessionTouch(arg1:string):Promise<void>;
+
+export function SessionUpdateDir(arg1:string,arg2:string):Promise<void>;
+
 export function TerminalAvailableShells():Promise<Array<string>>;
 
 export function TerminalClose(arg1:string):Promise<void>;
 
 export function TerminalCreate(arg1:string,arg2:string):Promise<string>;
+
+export function TerminalInjectHistory(arg1:string,arg2:string):Promise<void>;
 
 export function TerminalResize(arg1:string,arg2:number,arg3:number):Promise<void>;
 

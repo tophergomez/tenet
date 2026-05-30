@@ -64,13 +64,18 @@ func Home() string {
 	return home
 }
 
-// Expand replaces a leading ~ with the home directory.
+// expand resolves a leading ~ and normalises bare Windows drive letters.
 func expand(path string) string {
 	if path == "~" {
 		return Home()
 	}
 	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
 		return filepath.Join(Home(), path[2:])
+	}
+	// Normalise bare Windows drive letter "C:" → "C:\" so filepath.Join
+	// produces absolute paths instead of drive-relative paths (e.g. "C:file").
+	if len(path) == 2 && path[1] == ':' {
+		return path + string(filepath.Separator)
 	}
 	return path
 }

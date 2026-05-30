@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"tenet/core/auth"
@@ -75,9 +76,14 @@ func (a *App) startup(ctx context.Context) {
 	a.config = config.App
 
 	// Database (optional — app works without it)
-	if a.config.DatabaseURL != "" {
+	if a.config.DatabaseURL == "" {
+		runtime.LogInfof(ctx, "DATABASE_URL is not set; running without database-backed features")
+	} else {
 		if err := db.Connect(a.config.DatabaseURL); err != nil {
 			runtime.LogErrorf(ctx, "DB connect failed: %v", err)
+			runtime.LogInfof(ctx, "Check DATABASE_URL format: postgres://user:password@host:5432/dbname?sslmode=disable")
+		} else {
+			runtime.LogInfof(ctx, "Database connected and migrations applied")
 		}
 	}
 
@@ -141,6 +147,9 @@ func (a *App) AuthStartLogin() error {
 	if a.oauth == nil {
 		return fmt.Errorf("Google OAuth is not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file")
 	}
+	if err := a.requireDB(); err != nil {
+		return fmt.Errorf("database is required for login: %w", err)
+	}
 
 	authURL, err := a.oauth.StartLogin()
 	if err != nil {
@@ -152,6 +161,13 @@ func (a *App) AuthStartLogin() error {
 
 	// Wait for callback in the background
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				runtime.LogErrorf(a.ctx, "panic during AuthStartLogin flow: %v", r)
+				runtime.EventsEmit(a.ctx, "auth:error", fmt.Sprintf("unexpected auth error: %v", r))
+			}
+		}()
+
 		user, err := a.oauth.WaitForUser(5 * time.Minute)
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "auth:error", err.Error())
@@ -296,6 +312,13 @@ func (a *App) SessionDelete(id string) error {
 	return a.sessionSvc.Delete(id)
 }
 
+// SessionTouch updates the last_used_at timestamp for a session.
+func (a *App) SessionTouch(id string) {
+	if a.sessionSvc != nil {
+		a.sessionSvc.Touch(id)
+	}
+}
+
 // SessionRename changes a session's display name.
 func (a *App) SessionRename(id, name string) error {
 	if err := a.requireDB(); err != nil {
@@ -313,6 +336,70 @@ func (a *App) SessionAddCommand(sessionID, input, output, workingDir string, exi
 		return err
 	}
 	return a.sessionSvc.AddCommand(sessionID, input, output, workingDir, exitCode, durationMs)
+}
+
+// SessionUpdateDir persists the current working directory for a saved session.
+func (a *App) SessionUpdateDir(sessionID, workingDir string) error {
+	if a.sessionSvc == nil || !db.IsConnected() {
+		return nil
+	}
+	return a.sessionSvc.UpdateDir(sessionID, workingDir)
+}
+
+// TerminalInjectHistory seeds the shell's readline history with commands saved
+// under the given session. Silently no-ops when DB is unavailable or the
+// session has no history. shell must be "bash" or "powershell".
+func (a *App) TerminalInjectHistory(termID, sessionID string) error {
+	if a.sessionSvc == nil || !db.IsConnected() {
+		return nil
+	}
+	shell := a.termManager.Shell(termID)
+	if shell != terminal.ShellBash && shell != terminal.ShellPowerShell {
+		return nil // cmd.exe does not support programmatic history injection
+	}
+	sess, err := a.sessionSvc.Get(sessionID)
+	if err != nil || len(sess.Commands) == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	for _, cmd := range sess.Commands {
+		input := strings.TrimSpace(cmd.Input)
+		if input == "" {
+			continue
+		}
+		switch shell {
+		case terminal.ShellBash:
+			sb.WriteString(bashHistoryLine(input))
+		case terminal.ShellPowerShell:
+			sb.WriteString(psHistoryLine(input))
+		}
+	}
+	if sb.Len() == 0 {
+		return nil
+	}
+	return a.termManager.Write(termID, sb.String())
+}
+
+// bashHistoryLine builds a single `history -s $'...'` line safe for any input.
+func bashHistoryLine(cmd string) string {
+	// $'...' ANSI-C quoting: escape \, ', \n, \r
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		"'", `\'`,
+		"\n", `\n`,
+		"\r", ``,
+	)
+	return "history -s $'" + r.Replace(cmd) + "'\n"
+}
+
+// psHistoryLine builds a PSReadLine AddToHistory call safe for any input.
+func psHistoryLine(cmd string) string {
+	// PowerShell single-quoted strings: escape ' by doubling; strip newlines
+	cmd = strings.ReplaceAll(cmd, "\r\n", " ")
+	cmd = strings.ReplaceAll(cmd, "\n", " ")
+	cmd = strings.ReplaceAll(cmd, "'", "''")
+	return "[Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory('" + cmd + "')\n"
 }
 
 // ─── Directory ────────────────────────────────────────────────────────────────

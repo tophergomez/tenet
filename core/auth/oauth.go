@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"tenet/core/models"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // GoogleUser is the response from Google's userinfo endpoint.
@@ -33,6 +35,26 @@ type OAuthManager struct {
 	resultChan   chan *models.User
 	errChan      chan error
 	server       *http.Server
+}
+
+func (m *OAuthManager) sendErr(err error) {
+	if err == nil {
+		return
+	}
+	select {
+	case m.errChan <- err:
+	default:
+	}
+}
+
+func (m *OAuthManager) sendResult(user *models.User) {
+	if user == nil {
+		return
+	}
+	select {
+	case m.resultChan <- user:
+	default:
+	}
 }
 
 func NewOAuthManager(clientID, clientSecret string, port int) *OAuthManager {
@@ -72,6 +94,12 @@ func (m *OAuthManager) StartLogin() (string, error) {
 }
 
 func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.sendErr(fmt.Errorf("oauth callback server panic: %v", r))
+		}
+	}()
+
 	mux := http.NewServeMux()
 	m.server = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", m.port),
@@ -81,9 +109,19 @@ func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
 	}
 
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				m.sendErr(fmt.Errorf("oauth callback panic: %v", rec))
+				if m.server != nil {
+					go m.server.Shutdown(context.Background()) //nolint:errcheck
+				}
+			}
+		}()
+
 		if r.URL.Query().Get("state") != m.state {
 			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
-			m.errChan <- fmt.Errorf("invalid OAuth state")
+			m.sendErr(fmt.Errorf("invalid OAuth state"))
 			go m.server.Shutdown(context.Background()) //nolint:errcheck
 			return
 		}
@@ -91,7 +129,7 @@ func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
 		code := r.URL.Query().Get("code")
 		if code == "" {
 			http.Error(w, "Missing authorization code", http.StatusBadRequest)
-			m.errChan <- fmt.Errorf("no authorization code in callback")
+			m.sendErr(fmt.Errorf("no authorization code in callback"))
 			go m.server.Shutdown(context.Background()) //nolint:errcheck
 			return
 		}
@@ -99,7 +137,7 @@ func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
 		token, err := cfg.Exchange(context.Background(), code)
 		if err != nil {
 			http.Error(w, "Token exchange failed", http.StatusInternalServerError)
-			m.errChan <- fmt.Errorf("token exchange: %w", err)
+			m.sendErr(fmt.Errorf("token exchange: %w", err))
 			go m.server.Shutdown(context.Background()) //nolint:errcheck
 			return
 		}
@@ -107,7 +145,7 @@ func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
 		gu, err := fetchGoogleUser(cfg, token)
 		if err != nil {
 			http.Error(w, "Failed to retrieve user info", http.StatusInternalServerError)
-			m.errChan <- fmt.Errorf("fetch google user: %w", err)
+			m.sendErr(fmt.Errorf("fetch google user: %w", err))
 			go m.server.Shutdown(context.Background()) //nolint:errcheck
 			return
 		}
@@ -115,7 +153,7 @@ func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
 		user, err := upsertUser(gu)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
-			m.errChan <- fmt.Errorf("upsert user: %w", err)
+			m.sendErr(fmt.Errorf("upsert user: %w", err))
 			go m.server.Shutdown(context.Background()) //nolint:errcheck
 			return
 		}
@@ -123,13 +161,13 @@ func (m *OAuthManager) serveCallback(cfg *oauth2.Config) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, successPage)
 
-		m.resultChan <- user
+		m.sendResult(user)
 		go m.server.Shutdown(context.Background()) //nolint:errcheck
 	})
 
 	// Ignore ErrServerClosed — expected on graceful shutdown.
 	if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		m.errChan <- fmt.Errorf("callback server: %w", err)
+		m.sendErr(fmt.Errorf("callback server: %w", err))
 	}
 }
 
@@ -164,9 +202,16 @@ func fetchGoogleUser(cfg *oauth2.Config, token *oauth2.Token) (*GoogleUser, erro
 }
 
 func upsertUser(gu *GoogleUser) (*models.User, error) {
+	if !db.IsConnected() || db.DB == nil {
+		return nil, fmt.Errorf("database not connected")
+	}
+
 	var user models.User
 	res := db.DB.Where("google_id = ?", gu.ID).First(&user)
 	if res.Error != nil {
+		if !errors.Is(res.Error, gorm.ErrRecordNotFound) {
+			return nil, res.Error
+		}
 		// New user
 		user = models.User{
 			GoogleID: gu.ID,

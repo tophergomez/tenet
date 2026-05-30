@@ -57,7 +57,7 @@ export function LoginPage({ oauthConfigured, dbConnected, error, loading }: Logi
       {/* CTA */}
       <Button
         size="lg"
-        disabled={starting || loading || !oauthConfigured}
+        disabled={starting || loading || !oauthConfigured || !dbConnected}
         onClick={handleGoogleLogin}
         className="gap-3 bg-white text-zinc-900 hover:bg-zinc-100 font-medium h-12 px-6 disabled:opacity-40"
       >
@@ -80,7 +80,7 @@ export function LoginPage({ oauthConfigured, dbConnected, error, loading }: Logi
       {!dbConnected && oauthConfigured && (
         <p className="mt-4 text-xs text-zinc-600 max-w-xs text-center">
           Set <code className="text-zinc-400">DATABASE_URL</code> in your{' '}
-          <span className="text-zinc-400">.env</span> file to save sessions.
+          <span className="text-zinc-400">.env</span> file to enable login and save sessions.
         </p>
       )}
     </div>

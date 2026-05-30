@@ -6,12 +6,12 @@ import { TabBar } from '../components/terminal/TabBar'
 import { SessionList } from '../components/terminal/SessionList'
 import { DirectoryPicker } from '../components/terminal/DirectoryPicker'
 import { useTerminalStore, type ShellType, type SavedSession } from '../store/terminal'
-import { TerminalCreate, TerminalClose, TerminalAvailableShells } from '../../wailsjs/go/main/App'
+import { TerminalCreate, TerminalClose, TerminalAvailableShells, TerminalInjectHistory, SessionTouch, SessionUpdateDir } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { useState } from 'react'
 
 export function TerminalPage() {
-  const { tabs, activeTabId, addTab, removeTab, setShells } = useTerminalStore()
+  const { tabs, activeTabId, addTab, removeTab, setShells, updateLastSaved } = useTerminalStore()
   const [dirPickerOpen, setDirPickerOpen] = useState(false)
   const [pendingShell, setPendingShell] = useState<ShellType | null>(null)
 
@@ -23,7 +23,7 @@ export function TerminalPage() {
   }, [setShells])
 
   const spawnTab = useCallback(
-    async (shell: ShellType, workingDir = '') => {
+    async (shell: ShellType, workingDir = '', sessionId?: string, color?: string) => {
       try {
         const id = await TerminalCreate(shell, workingDir)
         addTab({
@@ -31,8 +31,15 @@ export function TerminalPage() {
           title: shell,
           shell,
           workingDir,
+          sessionId,
           isAlive: true,
+          color,
         })
+        // Inject saved command history so the user can ↑ through previous commands.
+        // Delayed to let the shell finish its startup phase before we write to the PTY.
+        if (sessionId) {
+          setTimeout(() => TerminalInjectHistory(id, sessionId).catch(() => {}), 900)
+        }
       } catch (e) {
         console.error('spawn failed:', e)
       }
@@ -52,6 +59,22 @@ export function TerminalPage() {
     const unsub = EventsOn('auth:logout', () => {})
     return () => unsub()
   }, [])
+
+  // Auto-save linked sessions every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const { tabs } = useTerminalStore.getState()
+      tabs.forEach((tab) => {
+        if (tab.sessionId && tab.isAlive) {
+          const now = new Date().toISOString()
+          SessionTouch(tab.sessionId).catch(() => {})
+          SessionUpdateDir(tab.sessionId, tab.workingDir).catch(() => {})
+          updateLastSaved(tab.id, now)
+        }
+      })
+    }, 10_000)
+    return () => clearInterval(interval)
+  }, [updateLastSaved])
 
   const handleNewTab = (shell: ShellType) => {
     setPendingShell(shell)
@@ -80,7 +103,8 @@ export function TerminalPage() {
   }
 
   const handleOpenSession = (session: SavedSession) => {
-    spawnTab(session.shell as ShellType, session.working_dir)
+    const color = localStorage.getItem(`tenet:session-color:${session.id}`) ?? undefined
+    spawnTab(session.shell as ShellType, session.working_dir, session.id, color)
   }
 
   const activeTab = tabs.find((t) => t.id === activeTabId)

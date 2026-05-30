@@ -98,6 +98,17 @@ func (s *Service) Touch(id string) {
 		Update("last_used_at", time.Now())
 }
 
+// UpdateDir persists the current working directory for a session.
+func (s *Service) UpdateDir(id, workingDir string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return fmt.Errorf("invalid session id: %w", err)
+	}
+	return db.DB.Model(&models.TerminalSession{}).
+		Where("id = ? AND user_id = ?", uid, s.userID).
+		Update("working_dir", workingDir).Error
+}
+
 // AddCommand appends a command record to a session.
 func (s *Service) AddCommand(sessionID, input, output, workingDir string, exitCode int, durationMs int64) error {
 	sid, err := uuid.Parse(sessionID)

@@ -46,6 +46,14 @@ export function SessionRename(arg1, arg2) {
   return window['go']['main']['App']['SessionRename'](arg1, arg2);
 }
 
+export function SessionTouch(arg1) {
+  return window['go']['main']['App']['SessionTouch'](arg1);
+}
+
+export function SessionUpdateDir(arg1, arg2) {
+  return window['go']['main']['App']['SessionUpdateDir'](arg1, arg2);
+}
+
 export function TerminalAvailableShells() {
   return window['go']['main']['App']['TerminalAvailableShells']();
 }
@@ -56,6 +64,10 @@ export function TerminalClose(arg1) {
 
 export function TerminalCreate(arg1, arg2) {
   return window['go']['main']['App']['TerminalCreate'](arg1, arg2);
+}
+
+export function TerminalInjectHistory(arg1, arg2) {
+  return window['go']['main']['App']['TerminalInjectHistory'](arg1, arg2);
 }
 
 export function TerminalResize(arg1, arg2, arg3) {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Terminal, Trash2, Pencil, ChevronRight, Clock } from 'lucide-react'
+import { Plus, Terminal, Trash2, Pencil, ChevronRight, Clock, Palette } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { useTerminalStore, type SavedSession } from '../../store/terminal'
+import { useTerminalStore, type SavedSession, TAB_COLORS } from '../../store/terminal'
 import { useAuthStore } from '../../store/auth'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
@@ -21,6 +21,7 @@ import {
   SessionCreate,
   SessionDelete,
   SessionRename,
+  SessionTouch,
   AuthLogout,
 } from '../../../wailsjs/go/main/App'
 
@@ -29,12 +30,32 @@ interface SessionListProps {
 }
 
 export function SessionList({ onOpenSession }: SessionListProps) {
-  const { sessions, setSessions } = useTerminalStore()
+  const { sessions, setSessions, tabs, activeTabId } = useTerminalStore()
+  const activeTab = tabs.find((t) => t.id === activeTabId)
   const { user, logout } = useAuthStore()
   const [newName, setNewName] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameName, setRenameName] = useState('')
+  const [sessionColors, setSessionColors] = useState<Record<string, string>>(() => {
+    const stored: Record<string, string> = {}
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('tenet:session-color:')) {
+        const id = key.slice('tenet:session-color:'.length)
+        stored[id] = localStorage.getItem(key) ?? ''
+      }
+    }
+    return stored
+  })
+
+  const handleSessionColor = (sessionId: string, color: string) => {
+    if (color) {
+      localStorage.setItem(`tenet:session-color:${sessionId}`, color)
+    } else {
+      localStorage.removeItem(`tenet:session-color:${sessionId}`)
+    }
+    setSessionColors((prev) => ({ ...prev, [sessionId]: color }))
+  }
 
   // Load saved sessions on mount
   useEffect(() => {
@@ -46,7 +67,9 @@ export function SessionList({ onOpenSession }: SessionListProps) {
   const handleCreate = async () => {
     if (!newName.trim()) return
     try {
-      const s = await SessionCreate(newName.trim(), 'powershell', '')
+      const shell = activeTab?.shell ?? 'powershell'
+      const workingDir = activeTab?.workingDir ?? ''
+      const s = await SessionCreate(newName.trim(), shell, workingDir)
       if (s) setSessions([s, ...sessions])
       setNewName('')
       setCreateOpen(false)
@@ -146,9 +169,16 @@ export function SessionList({ onOpenSession }: SessionListProps) {
               <div
                 key={s.id}
                 className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-zinc-900 cursor-pointer transition-colors"
-                onClick={() => onOpenSession(s)}
+                onClick={() => { SessionTouch(s.id); onOpenSession(s) }}
               >
-                <Terminal size={12} className="text-zinc-600 shrink-0" />
+                {sessionColors[s.id] ? (
+                  <span
+                    className="w-3 h-3 rounded-full shrink-0 border border-white/10"
+                    style={{ background: sessionColors[s.id] }}
+                  />
+                ) : (
+                  <Terminal size={12} className="text-zinc-600 shrink-0" />
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-zinc-300 truncate">{s.name}</p>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -198,6 +228,30 @@ export function SessionList({ onOpenSession }: SessionListProps) {
                     >
                       <Trash2 size={12} /> Delete
                     </DropdownMenuItem>
+                    <div className="px-2 py-1.5 flex items-center gap-1.5">
+                      <Palette size={10} className="text-zinc-600 mr-0.5" />
+                      <button
+                        title="No color"
+                        onClick={(e) => { e.stopPropagation(); handleSessionColor(s.id, '') }}
+                        className={cn(
+                          'w-4 h-4 rounded-full border-2 transition-all hover:scale-110',
+                          !sessionColors[s.id] ? 'border-zinc-300' : 'border-zinc-600 hover:border-zinc-400'
+                        )}
+                      />
+                      {TAB_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          title={c}
+                          onClick={(e) => { e.stopPropagation(); handleSessionColor(s.id, c) }}
+                          style={{
+                            background: c,
+                            outline: sessionColors[s.id] === c ? `2px solid ${c}` : undefined,
+                            outlineOffset: '2px',
+                          }}
+                          className="w-4 h-4 rounded-full hover:scale-110 transition-all"
+                        />
+                      ))}
+                    </div>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

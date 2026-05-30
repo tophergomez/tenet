@@ -2,6 +2,17 @@ import { create } from 'zustand'
 
 export type ShellType = 'bash' | 'powershell' | 'cmd'
 
+export const TAB_COLORS = [
+  '#ef4444', // red
+  '#f97316', // orange
+  '#eab308', // yellow
+  '#22c55e', // green
+  '#06b6d4', // cyan
+  '#3b82f6', // blue
+  '#a855f7', // purple
+  '#ec4899', // pink
+] as const
+
 export interface Tab {
   id: string         // Wails terminal process ID
   title: string
@@ -9,6 +20,8 @@ export interface Tab {
   workingDir: string
   sessionId?: string // linked saved-session ID
   isAlive: boolean
+  lastSavedAt?: string // ISO timestamp of last auto-save
+  color?: string       // accent color hex
 }
 
 export interface SavedSession {
@@ -34,6 +47,8 @@ interface TerminalState {
   updateWorkingDir: (id: string, dir: string) => void
   setSessions: (s: SavedSession[]) => void
   setShells: (shells: ShellType[]) => void
+  updateLastSaved: (id: string, timestamp: string) => void
+  updateTabColor: (id: string, color: string) => void
 }
 
 export const useTerminalStore = create<TerminalState>((set) => ({
@@ -73,4 +88,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setSessions: (sessions) => set({ sessions }),
 
   setShells: (availableShells) => set({ availableShells }),
+
+  updateLastSaved: (id, timestamp) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, lastSavedAt: timestamp } : t)),
+    })),
+
+  updateTabColor: (id, color) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, color } : t)),
+    })),
 }))
